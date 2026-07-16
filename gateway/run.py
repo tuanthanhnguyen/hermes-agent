@@ -1786,6 +1786,7 @@ except Exception as _bootstrap_exc:
 
 # Gateway runs in quiet mode - suppress debug output and use cwd directly (no temp dirs)
 os.environ["HERMES_QUIET"] = "1"
+os.environ["HERMES_GATEWAY"] = "1"
 
 # Enable interactive exec approval for dangerous commands on messaging platforms
 os.environ["HERMES_EXEC_ASK"] = "1"
@@ -19853,6 +19854,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     if has_voice_directive:
                         unique_tags.insert(0, "[[audio_as_voice]]")
                     final_response = final_response + "\n" + "\n".join(unique_tags)
+
+            # Preserve FILE tags emitted in tool results so the platform
+            # adapter can turn them into native document attachments.
+            if "FILE:<" not in final_response:
+                file_tags = []
+                for msg in result.get("messages", []):
+                    if msg.get("role") in ("tool", "function"):
+                        content = msg.get("content", "")
+                        if "FILE:<" in content:
+                            for match in re.finditer(r'FILE:<((?:[^>\\]|\\.)*)>', content):
+                                tag = match.group(0)
+                                if tag not in file_tags:
+                                    file_tags.append(tag)
+                if file_tags:
+                    final_response = final_response + "\n" + "\n".join(file_tags)
             
             # Auto-generate session title after first exchange (non-blocking)
             if final_response and self._session_db:

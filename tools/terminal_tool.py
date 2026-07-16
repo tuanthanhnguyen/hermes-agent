@@ -2338,6 +2338,14 @@ def terminal_tool(
                         env = new_env
                     logger.info("%s environment ready for task %s", env_type, effective_task_id[:8])
 
+        # Make inbound attachments available as soon as their target
+        # environment exists, including on cached-environment paths.
+        try:
+            from tools.file_transfer import process_pending_injections
+            process_pending_injections(effective_task_id)
+        except Exception as injection_err:
+            logger.warning("Pending file injection failed: %s", injection_err)
+
         if env is None:
             # Unreachable in practice (either the cached branch or the creation
             # branch assigned env above); guard for type-safety and so a future

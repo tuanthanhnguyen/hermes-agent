@@ -1362,6 +1362,9 @@ def _log_safe_path(path: str) -> str:
 
 
 SUPPORTED_DOCUMENT_TYPES = {
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".log": "text/plain",
     ".pdf": "application/pdf",
     ".md": "text/markdown",
     ".txt": "text/plain",
@@ -3356,6 +3359,39 @@ class BasePlatformAdapter(ABC):
         return lower.endswith('.gif')
 
     @staticmethod
+    def extract_files(content: str) -> Tuple[List[Tuple[str, Optional[str]]], str]:
+        """Extract safe ``FILE:<path|caption>`` document directives."""
+        files: List[Tuple[str, Optional[str]]] = []
+        file_pattern = r'FILE:<((?:[^>\\]|\\.)*)>'
+
+        try:
+            from tools.file_transfer import is_safe_file_path
+        except ImportError:
+            is_safe_file_path = None
+
+        for match in re.finditer(file_pattern, content):
+            inner = match.group(1).strip()
+            if not inner:
+                continue
+            raw_path, separator, raw_caption = inner.partition("|")
+            path = raw_path.strip().replace(r"\>", ">").replace(r"\\", "\\")
+            caption = (
+                raw_caption.strip().replace(r"\>", ">").replace(r"\\", "\\")
+                if separator else None
+            )
+            if is_safe_file_path is not None:
+                safe_path = is_safe_file_path(path)
+                if safe_path is None:
+                    logger.warning("Blocked FILE tag with path outside cache: %s", path)
+                    continue
+                path = str(safe_path)
+            files.append((path, caption))
+
+        cleaned = re.sub(file_pattern, "", content)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return files, cleaned
+
+    @staticmethod
     def extract_images(content: str) -> Tuple[List[Tuple[str, str]], str]:
         """
         Extract image URLs from markdown and HTML image tags in a response.
@@ -4985,6 +5021,9 @@ class BasePlatformAdapter(ABC):
 
                 # Extract image URLs and send them as native platform attachments
                 images, text_content = self.extract_images(response)
+                # Extract explicit file-transfer tags before text delivery so
+                # internal FILE:<...> directives are never shown to users.
+                file_attachments, text_content = self.extract_files(text_content)
                 # Strip any remaining internal directives from message body (fixes #1561).
                 # _strip_media_directives shares MEDIA_TAG_CLEANUP_RE, so a MEDIA: tag
                 # with an unknown extension is intentionally left in the body for
@@ -5212,6 +5251,23 @@ class BasePlatformAdapter(ABC):
                             )
                     except Exception as file_err:
                         logger.error("[%s] Error sending local file %s: %s", self.name, file_path, file_err)
+
+                # Deliver files explicitly emitted by the send_file tool.
+                for file_path, file_caption in file_attachments:
+                    if human_delay > 0:
+                        await asyncio.sleep(human_delay)
+                    try:
+                        doc_result = await self.send_document(
+                            chat_id=event.source.chat_id,
+                            file_path=file_path,
+                            caption=file_caption,
+                            file_name=os.path.basename(file_path),
+                            metadata=_final_thread_metadata,
+                        )
+                        if not doc_result.success:
+                            logger.error("[%s] Failed to send file: %s", self.name, doc_result.error)
+                    except Exception as file_err:
+                        logger.error("[%s] Error sending file: %s", self.name, file_err, exc_info=True)
 
                 # A3 (#29346): if a non-empty response produced nothing
                 # deliverable, fail loudly rather than dropping it in silence.
