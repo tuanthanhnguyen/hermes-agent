@@ -959,10 +959,11 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
     with _file_ops_lock:
         cached = _file_ops_cache.get(task_id)
     if cached is not None:
+        env_alive = False
         with _env_lock:
             if task_id in _active_environments:
                 _last_activity[task_id] = time.time()
-                return cached
+                env_alive = True
             else:
                 # Environment was cleaned up -- preserve the old cwd in the
                 # session record before invalidating the stale cache entry
@@ -978,6 +979,13 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
                         pass
                 with _file_ops_lock:
                     _file_ops_cache.pop(task_id, None)
+        if env_alive:
+            try:
+                from tools.file_transfer import process_pending_injections
+                process_pending_injections(task_id)
+            except Exception as _inj_err:
+                logger.warning("Pending file injection failed: %s", _inj_err)
+            return cached
 
     # Need to ensure the environment exists before building file_ops.
     # Acquire per-task lock so only one thread creates the sandbox.
@@ -1089,6 +1097,13 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
 
             _start_cleanup_thread()
             logger.info("%s environment ready for task %s", env_type, task_id[:8])
+
+    # Flush any files queued for injection into this sandbox
+    try:
+        from tools.file_transfer import process_pending_injections
+        process_pending_injections(task_id)
+    except Exception as _inj_err:
+        logger.warning("Pending file injection failed: %s", _inj_err)
 
     # Build file_ops from the (guaranteed live) environment and cache it
     file_ops = ShellFileOperations(terminal_env)
