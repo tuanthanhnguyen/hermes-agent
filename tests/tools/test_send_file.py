@@ -245,6 +245,29 @@ class TestDockerExtraction:
         assert result["filename"] == "out.csv"
 
     @patch.dict(os.environ, {"TERMINAL_ENV": "docker"})
+    def test_session_id_uses_default_environment(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr("tools.file_transfer.FILE_CACHE_DIR", cache_dir)
+
+        mock_env = SimpleNamespace(_container_id="shared-container")
+
+        def side_effect(cmd, **kwargs):
+            Path(cmd[-1]).write_text("docker file content")
+            return SimpleNamespace(returncode=0, stderr="")
+
+        with patch("tools.terminal_tool._active_environments", {"default": mock_env}), \
+             patch("tools.file_transfer.subprocess.run", side_effect=side_effect) as mock_run:
+            result = extract_file_from_sandbox(
+                "/workspace/out.csv", "20260717_101649_2b45a8ef"
+            )
+
+        assert result["success"] is True
+        assert mock_run.call_args.args[0][:3] == [
+            "docker", "cp", "shared-container:/workspace/out.csv",
+        ]
+
+    @patch.dict(os.environ, {"TERMINAL_ENV": "docker"})
     def test_docker_no_environment(self, tmp_path, monkeypatch):
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -305,6 +328,33 @@ class TestSSHExtraction:
 
         assert result["success"] is True
         assert result["filename"] == "data.csv"
+
+    @patch.dict(os.environ, {"TERMINAL_ENV": "ssh"})
+    def test_session_id_uses_default_environment(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr("tools.file_transfer.FILE_CACHE_DIR", cache_dir)
+
+        mock_env = SimpleNamespace(
+            control_socket="/tmp/ctrl.sock",
+            host="remote.host",
+            user="testuser",
+            port=22,
+        )
+
+        def side_effect(cmd, **kwargs):
+            Path(cmd[-1]).write_text("remote file content")
+            return SimpleNamespace(returncode=0, stderr="")
+
+        with patch("tools.terminal_tool._active_environments", {"default": mock_env}), \
+             patch("tools.file_transfer.subprocess.run", side_effect=side_effect) as mock_run:
+            result = extract_file_from_sandbox(
+                "/home/user/data.csv", "20260717_101649_2b45a8ef"
+            )
+
+        assert result["success"] is True
+        assert mock_run.call_args.args[0][0] == "scp"
+        assert "testuser@remote.host:/home/user/data.csv" in mock_run.call_args.args[0]
 
     @patch.dict(os.environ, {"TERMINAL_ENV": "ssh"})
     def test_scp_failure(self, tmp_path, monkeypatch):
@@ -395,6 +445,29 @@ class TestBase64Extraction:
         assert result["success"] is True
         with open(result["host_path"], "rb") as f:
             assert f.read() == original_data
+
+    @patch.dict(os.environ, {"TERMINAL_ENV": "modal"})
+    def test_session_id_uses_default_environment(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr("tools.file_transfer.FILE_CACHE_DIR", cache_dir)
+
+        original_data = b"shared fallback content"
+        encoded = base64.b64encode(gzip.compress(original_data)).decode("ascii")
+        mock_env = MagicMock()
+        mock_env.execute.side_effect = [
+            {"output": str(len(original_data)), "returncode": 0},
+            {"output": encoded, "returncode": 0},
+        ]
+
+        with patch("tools.terminal_tool._active_environments", {"default": mock_env}):
+            result = extract_file_from_sandbox(
+                "/workspace/test.txt", "20260717_101649_2b45a8ef"
+            )
+
+        assert result["success"] is True
+        assert Path(result["host_path"]).read_bytes() == original_data
+        assert mock_env.execute.call_count == 2
 
     @patch.dict(os.environ, {"TERMINAL_ENV": "modal"})
     def test_base64_file_not_found(self, tmp_path, monkeypatch):

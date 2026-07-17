@@ -241,9 +241,9 @@ def _extract_local(path: str, host_path: str) -> Dict[str, Any]:
 
 def _extract_docker(path: str, task_id: str, host_path: str) -> Dict[str, Any]:
     """Docker backend: docker cp container:path host_path."""
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active Docker environment for task {task_id}"}
 
@@ -271,9 +271,9 @@ def _extract_docker(path: str, task_id: str, host_path: str) -> Dict[str, Any]:
 
 def _extract_ssh(path: str, task_id: str, host_path: str) -> Dict[str, Any]:
     """SSH backend: scp with ControlMaster socket."""
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active SSH environment for task {task_id}"}
 
@@ -315,9 +315,9 @@ def _extract_via_base64(path: str, task_id: str, host_path: str) -> Dict[str, An
     Works for Modal, Singularity, Daytona, or any backend where the only
     interface is command execution.
     """
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active environment for task {task_id}"}
 
@@ -409,9 +409,9 @@ def _inject_local(host_path: str, remote_path: str) -> Dict[str, Any]:
 
 def _inject_docker(host_path: str, remote_path: str, task_id: str) -> Dict[str, Any]:
     """Docker backend: docker cp host_path container:remote_path."""
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active Docker environment for task {task_id}"}
 
@@ -436,9 +436,9 @@ def _inject_docker(host_path: str, remote_path: str, task_id: str) -> Dict[str, 
 
 def _inject_ssh(host_path: str, remote_path: str, task_id: str) -> Dict[str, Any]:
     """SSH backend: scp reverse."""
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active SSH environment for task {task_id}"}
 
@@ -477,9 +477,9 @@ def _inject_via_base64(host_path: str, remote_path: str, task_id: str) -> Dict[s
     Reads the file, gzip compresses, base64-encodes, and writes via echo
     piped through base64 decode + gunzip on the remote side.
     """
-    from tools.terminal_tool import _active_environments
+    from tools.terminal_tool import get_active_env
 
-    env = _active_environments.get(task_id)
+    env = get_active_env(task_id)
     if not env:
         return {"success": False, "error": f"No active environment for task {task_id}"}
 
